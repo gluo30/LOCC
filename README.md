@@ -27,8 +27,8 @@ The Loccfunc function will calculate LOCC and AUC and save pictures of graphs re
 
 >j <- grep("E2F1", PtExpressionZ$Hugo_Symbol)
 
-The LOCC analysis can will take a long time to run if it attempts analysis LOCC scores for every single gene. 
-I would recommend not running this loop until all the other code is run.  If you # out these lines, you can run the rest of the code to make sure it works.  
+The LOCC analysis can will take a long time to run if it attempts to analyze LOCC scores for every single gene. 
+I would recommend not running this particular loop until all the other code can be run.  If you # out these lines, you can run the rest of the code to make sure it works.  
 
 >#Loop over all genes, will take a long time
 >
@@ -36,4 +36,4 @@ I would recommend not running this loop until all the other code is run.  If you
   Loccfunc(j)
 }
 
-The other code include LOCC and AUC analysis of other gene sets (RISK/8-gene RISK) and samples of genes.  
+The other code after the loop include LOCC and AUC analysis of other gene sets (RISK/8-gene RISK) and samples of genes.  

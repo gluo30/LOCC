@@ -1,5 +1,5 @@
 # README
-This program contains code for running LOCC analysis on TCGA LIHC data.  Included in the folder is the TCGA LIHC dataset and the E2F1 expression data from LIRI-JP dataset.  
+This program contains code for running LOCC analysis on TCGA LIHC data.  You will need to download the TCGA Liver hepatocellular carcinoma dataset.  I have also included E2F1 expression data from LIRI-JP in the downloads.   
 
 # Installation
 Install R and R studio. Input Code into a new script.  

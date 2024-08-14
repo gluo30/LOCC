@@ -26,6 +26,8 @@ install.packages('survminer')
 install.packages('ROCR')
 install.packages('qvalue')
 install.packages("devtools")
+install.packages("stringr")
+install.packages("cairo")
 library("devtools")
 install_github("jdstorey/qvalue")
 #library packages
@@ -54,12 +56,15 @@ library(cutpointr)
 library(survminer)
 library(ROCR)
 library(qvalue)
+library(stringr)
+library(gridExtra)
+library(Cairo)
 
 #Set Directory
 setwd("C:/Users/soldi/Documents/R/CTRP2")
 
 #Selecting LIHC dataset, can pick other TCGA cancers if you swap it
-TCGA_Cancer_ID <- "lihc"
+TCGA_Cancer_ID <- "LIHC"
 setwd(paste0("C:/Users/soldi/Documents/R/CTRP2/", TCGA_Cancer_ID,"_tcga_pan_can_atlas_2018"))
 
 # Load the data
@@ -71,7 +76,9 @@ PtExpressionZ <- read.table(file = "data_mrna_seq_v2_rsem_zscores_ref_all_sample
 
 #LIHC E2F1 Figure
 
-j <- grep("E2F1", PtExpressionZ$Hugo_Symbol)
+j <- grep("^POLR2H$", PtExpressionZ$Hugo_Symbol)
+j <- 560
+
 
 #create function to calculate and generate LOCC and AUC graphs
 Loccfunc <- function(j){
@@ -111,437 +118,895 @@ Loccfunc <- function(j){
     PtGeneScore2[,1] <- substr(PtGeneScore2[,1],1,nchar(PtGeneScore2[,1])-3)
     PtGeneScore2[,1] <- str_replace(PtGeneScore2[,1], "\\.", "-")
     PtGeneScore2[,1] <- str_replace(PtGeneScore2[,1], "\\.", "-")
-  
-  
-  
-  # Set the initial cut-off point
-  cutter <- 22
-  
-  # Merge clinical data with gene score data
-  PtClinical4 <- merge(PtClinical, PtGeneScore2, by = "PATIENT_ID", all = TRUE)  
-  
-  # Select relevant columns
-  PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
-  
-  # Further subset the data
-  PtSurv <- subset(PtSurvivalCurve, select = c(3,2,10))
-  
-  # Rename columns
-  colnames(PtSurv) <- c("time", "status", "score")
-  
-  # Recode 'status' to numerical values and remove NA rows
-  PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
-  PtSurv <- na.omit(PtSurv)
-  
-  # Convert 'score' to numeric and replace NA values with 0
-  PtSurv$score <- as.numeric(PtSurv$score)
-  PtSurv[is.na(PtSurv)] <- 0
-  
-  # Order by 'score'
-  PtSurv <- PtSurv[order(as.numeric(PtSurv$score), decreasing = TRUE), ]
-  
-  # Save the gene score value at the cut-off point
-  GeneScoreValue <- PtSurv[cutter,3]
-  
-  # Assign high and low gene score groups
-  PtSurv[1:cutter,3] <- "High_Gene"
-  PtSurv[cutter:(nrow(PtSurv)+1),3] <- "Low_Gene"
-  
-  # Filter out only the high and low gene score groups
-  PtSurv <- filter(PtSurv, score == "High_Gene" | score == "Low_Gene")
-  
-  # Calculate survival difference using the survdiff function
-  CutTrial <- survdiff(Surv(time, Status) ~ score, data = PtSurv) 
-  
-  # Create a dataframe with the results
-  CutTrial <- data.frame(CutTrial$pvalue, CutTrial$n, CutTrial$obs, CutTrial$exp, GeneScoreValue)
-  
-  # Calculate HR
-  HR <- as.numeric(CutTrial[1,4])*as.numeric(CutTrial[2,5])/as.numeric(CutTrial[1,5])/as.numeric(CutTrial[2,4])
-  CutTrial$HR <- HR
-  
-  # Initialize AggreCut dataframe with the results from the first cut-off point
-  AggreCut <- CutTrial
-  
-  # Initialize a data frame to store the results
-  AggreCut <- data.frame(matrix(ncol=7,nrow=0, dimnames=list(NULL, c(colnames(CutTrial)))))
-  # Initialize a variable to track duplicates
-  Dupe <- 0
-  
-  # Loop over different cut-off points
-  for (cutter in 2:(nrow(PtSurv)-1)){  
-    # Repeat the same process with different cut-off points
-    PtClinical4 <- merge(PtClinical, PtGeneScore2,  by = "PATIENT_ID", all = TRUE)  
+    
+    
+    
+    # Set the initial cut-off point
+    cutter <- 22
+    
+    # Merge clinical data with gene score data
+    PtClinical4 <- merge(PtClinical, PtGeneScore2, by = "PATIENT_ID", all = TRUE)  
+    
+    # Select relevant columns
+    PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
+    
+    # Further subset the data
+    PtSurv <- subset(PtSurvivalCurve, select = c(3,2,10))
+    
+    # Rename columns
+    colnames(PtSurv) <- c("time", "status", "score")
+    
+    # Recode 'status' to numerical values and remove NA rows
+    PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
+    PtSurv <- na.omit(PtSurv)
+    
+    # Convert 'score' to numeric and replace NA values with 0
+    PtSurv$score <- as.numeric(PtSurv$score)
+    PtSurv[is.na(PtSurv)] <- 0
+    
+    # Order by 'score'
+    PtSurv <- PtSurv[order(as.numeric(PtSurv$score), decreasing = TRUE), ]
+    
+    # Save the gene score value at the cut-off point
+    GeneScoreValue <- PtSurv[cutter,3]
+    
+    # Assign high and low gene score groups
+    PtSurv[1:cutter,3] <- "High_Gene"
+    PtSurv[cutter:(nrow(PtSurv)+1),3] <- "Low_Gene"
+    
+    # Filter out only the high and low gene score groups
+    PtSurv <- filter(PtSurv, score == "High_Gene" | score == "Low_Gene")
+    
+    # Calculate survival difference using the survdiff function
+    CutTrial <- survdiff(Surv(time, Status) ~ score, data = PtSurv) 
+    
+    # Create a dataframe with the results
+    CutTrial <- data.frame(CutTrial$pvalue, CutTrial$n, CutTrial$obs, CutTrial$exp, GeneScoreValue)
+    
+    # Calculate HR
+    HR <- as.numeric(CutTrial[1,4])*as.numeric(CutTrial[2,5])/as.numeric(CutTrial[1,5])/as.numeric(CutTrial[2,4])
+    CutTrial$HR <- HR
+    
+    # Initialize AggreCut dataframe with the results from the first cut-off point
+    AggreCut <- CutTrial
+    
+    # Initialize a data frame to store the results
+    AggreCut <- data.frame(matrix(ncol=7,nrow=0, dimnames=list(NULL, c(colnames(CutTrial)))))
+    # Initialize a variable to track duplicates
+    Dupe <- 0
+    
+    # Loop over different cut-off points
+    for (cutter in 2:(nrow(PtSurv)-1)){  
+      # Repeat the same process with different cut-off points
+      PtClinical4 <- merge(PtClinical, PtGeneScore2,  by = "PATIENT_ID", all = TRUE)  
+      PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
+      PtSurv <- subset(PtSurvivalCurve, select = c(3,2,10))
+      colnames(PtSurv) <- c("time", "status", "score")
+      PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
+      PtSurv <- na.omit(PtSurv)
+      PtSurv$score <- as.numeric(PtSurv$score)
+      PtSurv[is.na(PtSurv)] <- 0
+      PtSurv <- PtSurv[order(as.numeric(PtSurv$score),decreasing = TRUE), ]
+      GeneScoreValue <- PtSurv[cutter,3]
+      PtSurv[1:cutter,3] <- "High_Gene"
+      PtSurv[cutter:(nrow(PtSurv)),3] <- "Low_Gene"
+      PtSurv <- filter(PtSurv, score == "High_Gene" | score == "Low_Gene")
+      
+      # Calculate survival difference for the current cut-off point
+      CutTrial <- survdiff(Surv(time, Status) ~ score, data = PtSurv) 
+      CutTrial <- data.frame(CutTrial$pvalue,CutTrial$n, CutTrial$obs,CutTrial$exp, GeneScoreValue)
+      HR <- as.numeric(CutTrial[1,4])*as.numeric(CutTrial[2,5])/as.numeric(CutTrial[1,5])/as.numeric(CutTrial[2,4])
+      CutTrial$HR <- HR
+      
+      # Add the results to the AggreCut data frame
+      AggreCut <- rbind(AggreCut, CutTrial)
+    }
+    
+    # Now we process the AggreCut data frame
+    AggreCut <- AggreCut[order(as.numeric(AggreCut[,1]), decreasing = FALSE),]
+    AggreCut2 <- AggreCut[AggreCut$groups == "score=High_Gene",]
+    AggreCut2 <- AggreCut2[order(as.numeric(AggreCut2[,3]), decreasing = FALSE),]
+    AggreCut2$Fraction <- AggreCut2$Freq/nrow(AggreCut2)
+    AggreCut2$logp <- -log(AggreCut2$CutTrial.pvalue, base = 10)
+    
+    #Check for Duplicates
+    if (AggreCut2[nrow(AggreCut2), 6] == AggreCut2[nrow(AggreCut2)-1, 6] ){
+      Dupe = 1 
+    }
+    
+    
+    #Count Dupes
+    if (Dupe == 1){
+      PreV  <- AggreCut2[1,6]
+      AggreCut2[1,10] <- Dupe
+      for (n in 2:nrow(AggreCut2)){
+        NowV <- AggreCut2[n,6]
+        if (PreV==NowV){
+          Dupe = Dupe +  1
+        } else {
+          Dupe = 1
+        }
+        PreV <- NowV
+        AggreCut2[n,10] <- Dupe
+      }
+    }
+    
+    DupeStart <- nrow(AggreCut2)-Dupe
+    
+    #Dupe Penalty
+    for (n in DupeStart:nrow(AggreCut2)){
+      PreVHR <- AggreCut2[n-1,7] - 0.1
+      PreVHR <- max(PreVHR, 1)
+      PreVP <- AggreCut2[n-1,9] - 0.1
+      PreVP <- max(PreVP, 0)
+      AggreCut2[n,7] <- PreVHR
+      AggreCut2[n,9] <- PreVP
+    }
+    
+    
+    # output data
+    write.csv(AggreCut2, file = paste0("AggreCut", Gene_set,cutter, ".csv"))
+    
+    #Plot LOCC Graph
+    {
+      df.cut <- subset(AggreCut2, select = c(7,8))
+      df.cut <- melt(df.cut, id.vars = "Fraction" , na.rm =  TRUE)
+      df.cut2 <- subset(AggreCut2, select = c(8,9))
+      df.cut2$logp <- (df.cut2$logp/2)
+      df.cut2 <- melt(df.cut2, id.vars = "Fraction" , na.rm =  TRUE)
+      df.cut2$variable <- "-Log (p value)"
+      df.cut2 <- rbind(df.cut2, df.cut)
+      df.cut2 <- df.cut2[df.cut2$Fraction > 0.05,]
+      df.cut2 <- df.cut2[df.cut2$Fraction < 0.95,]
+      df.cut2$variable <- factor(df.cut2$variable, levels = c("HR", "-Log (p value)"))
+      p <- ggplot(df.cut2, aes(x = Fraction, y = value,color = variable)) +geom_point() + geom_line(aes(color = variable)) + scale_color_manual(values=c("black", "orange")) + ggtitle(paste0(Gene_set, " TCGA ", TCGA_Cancer_ID ," LOCC")) + scale_y_continuous(
+        # Features of the first axis
+        name = "Hazard Ratio (HR)",
+        # Add a second axis and specify its features
+        sec.axis = sec_axis( trans=~.*2, name="-Log (p value)")
+      ) + scale_x_continuous( name = "Fraction in High Activity Group", limits = c(0, 1), expand = c(0, 0)) + geom_hline(aes(yintercept=1), color = "red") + geom_hline(aes(yintercept=0.65),  color = "green") + scale_fill_discrete(labels=c('HR', 'p value')) + theme_classic()+ theme(plot.title = element_text(hjust = 0.5),legend.position="bottom", text=element_text(size=30), axis.text=element_text(size=30))  + labs(colour="Legend",x="xxx",y="yyy")
+      
+      ggsave(paste0(Gene_set,"_LOCC.pdf"), plot=p,width = 7, height = 7, dpi = 300,)
+    }
+    
     PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
     PtSurv <- subset(PtSurvivalCurve, select = c(3,2,10))
     colnames(PtSurv) <- c("time", "status", "score")
     PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
     PtSurv <- na.omit(PtSurv)
     PtSurv$score <- as.numeric(PtSurv$score)
+    PtSurv$time <- as.numeric(PtSurv$time)
     PtSurv[is.na(PtSurv)] <- 0
+    # PtSurv <- LiziSurv2
     PtSurv <- PtSurv[order(as.numeric(PtSurv$score),decreasing = TRUE), ]
+    
+    {
+      #Check if gene is expressed
+      if (nrow(PtSurv) > 100 & PtSurv[nrow(PtSurv)/5,3] != PtSurv[nrow(PtSurv)-1,3]){
+        
+        #Mutation Analysis
+        {
+          # Subset the dataframe `PtClinical2` to keep only relevant columns
+          PtSurvivalCurve <- subset(PtClinical2, select = c(1,30:37,38))
+          
+          # Further subset `PtSurvivalCurve` to keep only essential columns
+          PtSurv <- subset(PtSurvivalCurve, select = c(1,3,2,10))
+          
+          # Rename the columns of `PtSurv`
+          colnames(PtSurv) <- c("ID","time", "status", "mutation")
+          
+          # Recode the `status` column such that '1:DECEASED' is 1 and '0:LIVING' is 0
+          PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
+          
+          # Remove NA values from `PtSurv`
+          PtSurv <- na.omit(PtSurv)
+          
+          # Replace the mutations with "Mutant"
+          PtSurv$mutation[PtSurv$mutation == Mutation1] <- "Mutant"
+          
+          
+          # Order the `PtSurv` dataframe based on `mutation`
+          PtSurv <- PtSurv[order(as.character(PtSurv$mutation), decreasing = FALSE), ]
+          
+          # Keep only distinct rows of `PtSurv` based on `ID`
+          PtSurv <- distinct(PtSurv, ID, .keep_all = T)
+          
+          # Only perform survival analysis if there are more than 5 "Mutant"
+          if (length(PtSurv$mutation[PtSurv$mutation == "Mutant"]) > 5){
+            # Compute the survival difference
+            surv_diff <- survdiff(Surv(time, Status) ~ mutation, data = PtSurv) 
+            
+            # Compute the survival fit
+            surv_fit <- survfit(Surv(time, Status) ~ mutation, data = PtSurv)
+            
+            # Plot the survival analysis
+            r <- survfit(Surv(time, Status) ~ mutation, data = PtSurv) 
+            t <-  ggsurvplot(r, data = PtSurv, risk.table = TRUE, size=1.2, fontsize = 7.5, 
+                             risk.table.y.text = FALSE, tables.y.text = FALSE, risk.table.height = 0.35,
+                             font.title = c(16, "bold", "black"), font.subtitle = c(16, "bold", "black"),
+                             font.caption = c(16, "bold", "black"), font.x = c(16, "bold", "black"),
+                             font.y = c(16, "bold", "black"), font.tickslab = c(16, "bold", "black"))
+            
+            # Enhance themes for plot and table
+            t$plot <- t$plot + theme(legend.title = element_text(size = 18, color = "black", face = "bold"),
+                                     legend.text = element_text(size = 18, color = "black", face = "bold"),
+                                     axis.text.x = element_text(size = 20, color = "black", face = "bold"),
+                                     axis.text.y = element_text(size = 20, color = "black", face = "bold"),
+                                     axis.title.x = element_text(size = 20, color = "black", face = "bold"),
+                                     axis.title.y = element_text(size = 20, color = "black", face = "bold"))
+            t$table <- t$table + theme(plot.title = element_text(size = 16, color = "black", face = "bold"), 
+                                       axis.text.x = element_text(size = 20, color = "black", face = "bold"),
+                                       axis.title.x = element_text(size = 20, color = "black", face = "bold"))
+            
+            # Combine plot and table using grid.arrange (or arrangeGrob for saving)
+            combined_plot <- grid.arrange(t$plot, t$table, heights=c(2, 1))
+            
+            # Save the combined plot as a pdf using ggsave
+            ggsave(filename = paste0(Gene_set, "_mutsurv.pdf"), plot = combined_plot, device = "pdf", width = 10, height = 8)
+          }
+        }
+        
+        
+        
+        
+        #Cut at best cutpoint
+        {
+          PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
+          PtSurv <- subset(PtSurvivalCurve, select = c(3,2,10))
+          colnames(PtSurv) <- c("time", "status", "score")
+          PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
+          PtSurv <- na.omit(PtSurv)
+          PtSurv$score <- as.numeric(PtSurv$score)
+          PtSurv$time <- as.numeric(PtSurv$time)
+          PtSurv[is.na(PtSurv)] <- 0
+          # PtSurv <- LiziSurv2
+          PtSurv <- PtSurv[order(as.numeric(PtSurv$score),decreasing = TRUE), ]
+          res.cut <- surv_cutpoint(PtSurv, time = "time", event = "Status",
+                                   variables = "score", minprop = 0.1)
+          summary(res.cut)
+          PtSurv$score[as.numeric(PtSurv$score) > res.cut$score[4]] <- as.character("High_Score")
+          PtSurv$score[(PtSurv$score) <= res.cut$score[4]] <- as.character("Low_Score")
+          
+        }
+        # Print a summary of `res.cut`
+        summary(res.cut)
+        
+        
+        # Plot the survival curve with risk table
+        r <- survfit(Surv(time, Status) ~ score, data = PtSurv) 
+        t <- ggsurvplot(r, data = PtSurv, risk.table = TRUE,
+                        size = 1.2,
+                        fontsize = 7.5,
+                        risk.table.y.text = FALSE,
+                        tables.y.text = FALSE,
+                        risk.table.height = 0.35,
+                        font.title = c(16, "bold", "black"),
+                        font.subtitle = c(16, "bold", "black"),
+                        font.caption = c(16, "bold", "black"),
+                        font.x = c(16, "bold", "black"),
+                        font.y = c(16, "bold", "black"),
+                        font.tickslab = c(16, "bold", "black")) 
+        
+        # Enhance themes for plot and table
+        t$plot <- t$plot + theme(legend.title = element_text(size = 14, color = "black", face = "bold"),
+                                 legend.text = element_text(size = 14, color = "black", face = "bold"),
+                                 axis.text.x = element_text(size = 20, color = "black", face = "bold"),
+                                 axis.text.y = element_text(size = 20, color = "black", face = "bold"),
+                                 axis.title.x = element_text(size = 20, color = "black", face = "bold"),
+                                 axis.title.y = element_text(size = 20, color = "black", face = "bold"))
+        t$table <- t$table + theme(plot.title = element_text(size = 16, color = "black", face = "bold"), 
+                                   axis.text.x = element_text(size = 20, color = "black", face = "bold"),
+                                   axis.title.x = element_text(size = 20, color = "black", face = "bold"))
+        
+        # Combine plot and table using grid.arrange (or arrangeGrob for saving)
+        combined_plot <- grid.arrange(t$plot, t$table, heights=c(2, 1))
+        
+        # Save the combined plot as a pdf using ggsave
+        ggsave(filename = paste0(Gene_set, "survplot.pdf"), plot = combined_plot, device = "pdf", width = 10, height = 8)
+        
+        
+        # Perform Cox proportional hazards model
+        fit <- coxph(Surv(time,Status) ~ score, data = PtSurv)
+        
+        test.ph <- cox.zph(fit)
+        
+        # Compute and save summary of fit, survival difference, and survival fit
+        SumFit <- summary(fit)
+        Diffsurv <- survdiff(Surv(time, Status) ~ score, data = PtSurv) 
+        Fitsurv <- survfit(Surv(time, Status) ~ score, data = PtSurv)
+        
+        capture.output(SumFit, file = paste0(Gene_set,"SumFit.csv"))
+        capture.output(Diffsurv, file = paste0(Gene_set,"Diffsurv.csv"))
+        capture.output(Fitsurv, file = paste0(Gene_set,"Fitsurv.csv"))
+        
+        library(ROCR)
+        #Calculate and Plot ROC Curve
+        {
+          #Prepare Dataset
+          PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
+          PtSurv <- subset(PtSurvivalCurve, select = c(3,2,10))
+          colnames(PtSurv) <- c("time", "status", "score")
+          PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
+          PtSurv <- na.omit(PtSurv)
+          PtSurv$score <- as.numeric(PtSurv$score)
+          PtSurv$time <- as.numeric(PtSurv$time)
+          PtSurv[is.na(PtSurv)] <- 0
+          PtSurv <- PtSurv[order(as.numeric(PtSurv$score),decreasing = TRUE), ]
+          PtSurv2 <- PtSurv
+          PtSurv2$time <- PtSurv2$time + 0.01
+          # Filter by time over 1 month
+          # PtSurv2 <- PtSurv[PtSurv$time > 1, ] 
+          PtSurv3 <- (PtSurv[PtSurv$time < 0.001 & PtSurv$Status == 1, ] )
+          PtSurv2 <- rbind(PtSurv2, PtSurv3)
+          
+          #Time-dependent ROC Curve
+          midsurv <- 1000000
+          
+          df.y <- data.frame(PtSurv$time, PtSurv$Status)
+          df <- data.frame(PtSurv2$score, PtSurv2$time, PtSurv2$Status)
+          colnames(df) <- c("predictions", "time", "status")
+          for (o in 1:nrow(df)) {
+            df[o,4] <- as.numeric(0)
+            if (as.numeric(df[o,2]) < midsurv & df[o,3] == 1){
+              df[o,4] <- 1
+            }
+          }
+          
+          # Data Preparation
+          df <- subset(df, select = c(1,4))
+          colnames(df) <- c("predictions", "labels")
+          pred <- prediction(df$predictions, df$labels)
+          perf <- performance(pred, "tpr", "fpr")
+          perf_df <- data.frame(False_Positive_Rate = perf@x.values[[1]], True_Positive_Rate = perf@y.values[[1]])
+          
+          # Plot using ggplot2
+          roc_plot <- ggplot(perf_df, aes(x = False_Positive_Rate, y = True_Positive_Rate)) +
+            geom_line() +
+            geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
+            labs(x = "False Positive Rate", y = "True Positive Rate", title = "ROC Curve") +
+            theme_minimal(base_size = 20)
+          
+          # Save the plot using ggsave
+          ggsave(paste0(Gene_set, "_ROC_AUC.pdf"), plot = roc_plot, device = "pdf", width = 10, height = 8)
+          
+          auc_ROCR <- performance(pred, measure = "auc")
+          auc_ROCR <- auc_ROCR@y.values[[1]]
+          
+        }
+        
+        
+        #Select cutoff for activity
+        {
+          PtScore3 <- merge(PtGeneScore2, PtSpecificMutation, all.x = TRUE)
+          bestcutoff <- res.cut$score
+          
+          write.csv(PtScore3, file = paste0(Gene_set,"vsMut.csv"))
+          
+          
+          bestcutoff <- res.cut$cutpoint$cutpoint
+        }
+        
+        
+        #Prepare Activity data
+        {
+          
+          PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
+          PtSurv <- subset(PtSurvivalCurve, select = c(1,3,2,10))
+          
+          colnames(PtSurv) <- c("PATIENT_ID", "time", "status", "score")
+          PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
+          PtSurv <- na.omit(PtSurv)
+          
+          df.activity <- data.frame(PtSurv)
+          df.activity <- df.activity[order(as.numeric(df.activity[,4]), decreasing = TRUE),]
+          df.activity <- df.activity %>% 
+            mutate(row_id=row_number())
+          df.activity <- merge(df.activity, PtSpecificMutation, by = "PATIENT_ID", keep.all = TRUE, all.x = TRUE)
+          df.activity[is.na(df.activity)] <- "WT"
+          df.activity <- subset(df.activity, select = c(4,6,7))
+          df.activity$N_Score <- as.numeric(df.activity$score)
+          df.activity <- df.activity[order(df.activity$score, decreasing = TRUE),]
+        }
+        
+        #Plot Activity Graph
+        {
+          q <- ggplot(df.activity, aes(x = row_id, y = N_Score,color = Hugo_Symbol)) + geom_point(size = 1.8)  + ggtitle(paste0(Gene_set," TCGA ", TCGA_Cancer_ID,  " Curve")) + scale_y_continuous(
+            #+ scale_color_manual(values=c("cornflower blue")) 
+            # Features of the first axis
+            name = paste0(Gene_set, " Score"), expand = c(0, 0)
+            # Add a second axis and specify its features
+            #sec.axis = sec_axis( trans=~.*2, name="-Log (p value)")
+          ) + scale_x_continuous( name = paste0("Ranking by ", Gene_set), expand = c(0, 1))  + geom_hline(aes(yintercept=bestcutoff),  color = "gray50") + scale_fill_discrete(labels=c('HR', 'p value')) + theme_classic()+ theme(legend.position="bottom", text=element_text(size=24), axis.text=element_text(size=24), plot.title = element_text(hjust = 0.5))  + labs(colour="Legend",x="xxx",y="yyy")
+          
+          # q
+          ggsave(paste0(Gene_set," Activityv3.pdf"), plot=q, width = 12, height = 10, dpi = 300)
+          
+        }
+        
+        
+        
+        #LOCC Calculations
+        {
+          
+          #Calculate Parameters
+          length (AggreCut2$logp[AggreCut2$logp > as.numeric(2)])
+          max(AggreCut2$HR[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9])
+          min(AggreCut2$HR[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9])
+          max(AggreCut2$logp[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9])
+          #Create Dataframe and Save numbers
+          DF.qkscore <- data.frame(Mutation1, max(AggreCut2$logp[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9]), length (AggreCut2$logp[AggreCut2$logp > as.numeric(2)])/nrow(AggreCut2), max(AggreCut2$HR[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9]), min(AggreCut2$HR[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9]),res.cut$cutpoint$cutpoint, Dupe, AggreCut2$HR[AggreCut2$logp == (max(AggreCut2$logp[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9]))], auc_ROCR)
+          colnames(DF.qkscore) <- c("Gene", "-log (p value)", "Percentage highly significantly", "Highest HR", "Lowest HR", "Cut","dupe", "significant HR", "auc_ROCR")
+          write.csv(DF.qkscore, paste0(Gene_set, "_LOCC_Scorev3.csv"))
+        }
+      }
+    }
+  }
+  
+  
+}
+
+#Locc function for sampling (2-Fold Cross Validation), s for number for times to run sample simulation
+Loccfunc2 <- function(j,s){
+  
+  Mutation1 <- PtExpressionZ[j,1]
+  Gene_set <- Mutation1
+  #Pick Gene Mutation Data
+  if (all(Mutation1 != "")) {
+    PtSpecificMutation <- subset(PtMutation, select = c(1,9:20,39))
+    PtSpecificMutation <- filter(PtSpecificMutation, Hugo_Symbol == Mutation1)
+    PtSpecificMutation <- filter(PtSpecificMutation, Variant_Classification != "Silent")
+    PtSpecificMutation <-  unique(PtSpecificMutation[ , c("Hugo_Symbol", "Tumor_Sample_Barcode")], .keep_all = TRUE)
+    PtSpecificMutation$Tumor_Sample_Barcode <- substr(PtSpecificMutation$Tumor_Sample_Barcode,1,nchar(PtSpecificMutation$Tumor_Sample_Barcode)-3)
+    colnames(PtSpecificMutation)[2] <- "PATIENT_ID"
+    
+    # Merge the clinical and mutation data
+    PtClinical2 <- merge(PtClinical, PtSpecificMutation, by = "PATIENT_ID", all.x = TRUE)
+    PtClinical2$Hugo_Symbol <- replace_na(PtClinical2$Hugo_Symbol, "WT")
+    PtClinical2$Mutant <- PtClinical2$Hugo_Symbol
+    
+    # Process the expression data
+    PtExpressionGene <- PtExpressionZ[PtExpressionZ$Hugo_Symbol %in% Mutation1,]
+    PtExpressionGene <- subset(PtExpressionGene, select = c(-2))
+    PtExpressionGene <- na.omit(PtExpressionGene)
+    Averages <- summarize_all(PtExpressionGene[,-c(1)], mean)
+    Averages <- data.frame(0, Averages)
+    colnames(Averages)[1] <- "Hugo_Symbol"
+    PtExpressionGene <- rbind(PtExpressionGene, Averages)
+    PtExpressionGene[nrow(PtExpressionGene),1] <- "Mean"
+    
+    # Compute Gene Z-Score
+    PtGeneScore <- PtExpressionGene[nrow(PtExpressionGene),]
+    PtGeneScore <- rbind(colnames(PtGeneScore), PtGeneScore)
+    PtGeneScore2 <- t(PtGeneScore)
+    PtGeneScore2 <- PtGeneScore2[2:nrow(PtGeneScore2),]
+    colnames(PtGeneScore2) <- c("PATIENT_ID", "Gene_Score")
+    PtGeneScore2[,1] <- substr(PtGeneScore2[,1],1,nchar(PtGeneScore2[,1])-3)
+    PtGeneScore2[,1] <- str_replace(PtGeneScore2[,1], "\\.", "-")
+    PtGeneScore2[,1] <- str_replace(PtGeneScore2[,1], "\\.", "-")
+    
+    
+    
+    # Set the initial cut-off point
+    cutter <- 22
+    
+    # Merge clinical data with gene score data
+    PtClinical4 <- merge(PtClinical, PtGeneScore2, by = "PATIENT_ID", all = TRUE)  
+    
+    # Select relevant columns
+    PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
+    
+    # Further subset the data
+    PtSurv <- subset(PtSurvivalCurve, select = c(3,2,10))
+    
+    # Rename columns
+    colnames(PtSurv) <- c("time", "status", "score")
+    
+    # Recode 'status' to numerical values and remove NA rows
+    PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
+    PtSurv <- na.omit(PtSurv)
+    
+    # Convert 'score' to numeric and replace NA values with 0
+    PtSurv$score <- as.numeric(PtSurv$score)
+    PtSurv[is.na(PtSurv)] <- 0
+    
+    # Order by 'score'
+    PtSurv <- PtSurv[order(as.numeric(PtSurv$score), decreasing = TRUE), ]
+    
+    # Save the gene score value at the cut-off point
     GeneScoreValue <- PtSurv[cutter,3]
+    
+    # Assign high and low gene score groups
     PtSurv[1:cutter,3] <- "High_Gene"
-    PtSurv[cutter:(nrow(PtSurv)),3] <- "Low_Gene"
+    PtSurv[cutter:(nrow(PtSurv)+1),3] <- "Low_Gene"
+    
+    # Filter out only the high and low gene score groups
     PtSurv <- filter(PtSurv, score == "High_Gene" | score == "Low_Gene")
     
-    # Calculate survival difference for the current cut-off point
+    # Calculate survival difference using the survdiff function
     CutTrial <- survdiff(Surv(time, Status) ~ score, data = PtSurv) 
-    CutTrial <- data.frame(CutTrial$pvalue,CutTrial$n, CutTrial$obs,CutTrial$exp, GeneScoreValue)
+    
+    # Create a dataframe with the results
+    CutTrial <- data.frame(CutTrial$pvalue, CutTrial$n, CutTrial$obs, CutTrial$exp, GeneScoreValue)
+    
+    # Calculate HR
     HR <- as.numeric(CutTrial[1,4])*as.numeric(CutTrial[2,5])/as.numeric(CutTrial[1,5])/as.numeric(CutTrial[2,4])
     CutTrial$HR <- HR
     
-    # Add the results to the AggreCut data frame
-    AggreCut <- rbind(AggreCut, CutTrial)
-  }
-  
-  # Now we process the AggreCut data frame
-  AggreCut <- AggreCut[order(as.numeric(AggreCut[,1]), decreasing = FALSE),]
-  AggreCut2 <- AggreCut[AggreCut$groups == "score=High_Gene",]
-  AggreCut2 <- AggreCut2[order(as.numeric(AggreCut2[,3]), decreasing = FALSE),]
-  AggreCut2$Fraction <- AggreCut2$Freq/nrow(AggreCut2)
-  AggreCut2$logp <- -log(AggreCut2$CutTrial.pvalue, base = 10)
-  
-  #Check for Duplicates
-  if (AggreCut2[nrow(AggreCut2), 6] == AggreCut2[nrow(AggreCut2)-1, 6] ){
-    Dupe = 1 
-  }
-  
-  
-  #Count Dupes
-  if (Dupe == 1){
-    PreV  <- AggreCut2[1,6]
-    AggreCut2[1,10] <- Dupe
-    for (n in 2:nrow(AggreCut2)){
-      NowV <- AggreCut2[n,6]
-      if (PreV==NowV){
-        Dupe = Dupe +  1
-      } else {
-        Dupe = 1
-      }
-      PreV <- NowV
-      AggreCut2[n,10] <- Dupe
-    }
-  }
-  
-  DupeStart <- nrow(AggreCut2)-Dupe
-  
-  #Dupe Penalty
-  for (n in DupeStart:nrow(AggreCut2)){
-    PreVHR <- AggreCut2[n-1,7] - 0.1
-    PreVHR <- max(PreVHR, 1)
-    PreVP <- AggreCut2[n-1,9] - 0.1
-    PreVP <- max(PreVP, 0)
-    AggreCut2[n,7] <- PreVHR
-    AggreCut2[n,9] <- PreVP
-  }
-  
-  
-  # output data
-  write.csv(AggreCut2, file = paste0("AggreCut", Gene_set,cutter, ".csv"))
-  
-  #Plot LOCC Graph
-  {
-    df.cut <- subset(AggreCut2, select = c(7,8))
-    df.cut <- melt(df.cut, id.vars = "Fraction" , na.rm =  TRUE)
-    df.cut2 <- subset(AggreCut2, select = c(8,9))
-    df.cut2$logp <- (df.cut2$logp/2)
-    df.cut2 <- melt(df.cut2, id.vars = "Fraction" , na.rm =  TRUE)
-    df.cut2$variable <- "-Log (p value)"
-    df.cut2 <- rbind(df.cut2, df.cut)
-    df.cut2 <- df.cut2[df.cut2$Fraction > 0.05,]
-    df.cut2 <- df.cut2[df.cut2$Fraction < 0.95,]
-    df.cut2$variable <- factor(df.cut2$variable, levels = c("HR", "-Log (p value)"))
-    p <- ggplot(df.cut2, aes(x = Fraction, y = value,color = variable)) +geom_point() + geom_line(aes(color = variable)) + scale_color_manual(values=c("black", "orange")) + ggtitle(paste0(Gene_set, " TCGA ", TCGA_Cancer_ID ," LOCC")) + scale_y_continuous(
-      # Features of the first axis
-      name = "Hazard Ratio (HR)",
-      # Add a second axis and specify its features
-      sec.axis = sec_axis( trans=~.*2, name="-Log (p value)")
-    ) + scale_x_continuous( name = "Fraction in High Activity Group", limits = c(0, 1), expand = c(0, 0)) + geom_hline(aes(yintercept=1), color = "red") + geom_hline(aes(yintercept=0.65),  color = "green") + scale_fill_discrete(labels=c('HR', 'p value')) + theme_classic()+ theme(plot.title = element_text(hjust = 0.5),legend.position="bottom", text=element_text(size=30), axis.text=element_text(size=30))  + labs(colour="Legend",x="xxx",y="yyy")
+    # Initialize AggreCut dataframe with the results from the first cut-off point
+    AggreCut <- CutTrial
     
+    # Initialize a data frame to store the results
+    AggreCut <- data.frame(matrix(ncol=7,nrow=0, dimnames=list(NULL, c(colnames(CutTrial)))))
+    # Initialize a variable to track duplicates
+    Dupe <- 0
     
-    
-    ggsave(paste0(Gene_set,"_LOCC.pdf"), plot=p,width = 7, height = 7, dpi = 300,)
-    # dev.off
-  }
-  
-  PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
-  PtSurv <- subset(PtSurvivalCurve, select = c(3,2,10))
-  colnames(PtSurv) <- c("time", "status", "score")
-  PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
-  PtSurv <- na.omit(PtSurv)
-  PtSurv$score <- as.numeric(PtSurv$score)
-  PtSurv$time <- as.numeric(PtSurv$time)
-  PtSurv[is.na(PtSurv)] <- 0
-  # PtSurv <- LiziSurv2
-  PtSurv <- PtSurv[order(as.numeric(PtSurv$score),decreasing = TRUE), ]
-  
-  {
-    #Check if gene is expressed
-    if (nrow(PtSurv) > 100 & PtSurv[nrow(PtSurv)/5,3] != PtSurv[nrow(PtSurv)-1,3]){
-    
-      #Mutation Analysis
-      {
-        # Subset the dataframe `PtClinical2` to keep only relevant columns
-        PtSurvivalCurve <- subset(PtClinical2, select = c(1,30:37,38))
-        
-        # Further subset `PtSurvivalCurve` to keep only essential columns
-        PtSurv <- subset(PtSurvivalCurve, select = c(1,3,2,10))
-        
-        # Rename the columns of `PtSurv`
-        colnames(PtSurv) <- c("ID","time", "status", "mutation")
-        
-        # Recode the `status` column such that '1:DECEASED' is 1 and '0:LIVING' is 0
-        PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
-        
-        # Remove NA values from `PtSurv`
-        PtSurv <- na.omit(PtSurv)
-        
-        # Replace the mutations with "Mutant"
-        PtSurv$mutation[PtSurv$mutation == Mutation1] <- "Mutant"
-        
-        
-        # Order the `PtSurv` dataframe based on `mutation`
-        PtSurv <- PtSurv[order(as.character(PtSurv$mutation), decreasing = FALSE), ]
-        
-        # Keep only distinct rows of `PtSurv` based on `ID`
-        PtSurv <- distinct(PtSurv, ID, .keep_all = T)
-        
-        # Only perform survival analysis if there are more than 5 "Mutant"
-        if (length(PtSurv$mutation[PtSurv$mutation == "Mutant"]) > 5){
-          # Compute the survival difference
-          surv_diff <- survdiff(Surv(time, Status) ~ mutation, data = PtSurv) 
-          
-          # Compute the survival fit
-          surv_fit <- survfit(Surv(time, Status) ~ mutation, data = PtSurv)
-          
-          # Plot the survival analysis
-          r <- survfit2(Surv(time, Status) ~ mutation, data = PtSurv) 
-          t <-  ggsurvplot(r, data = PtSurv, risk.table = TRUE, size=1.2, fontsize = 7.5, 
-                           risk.table.y.text = FALSE, tables.y.text = FALSE, risk.table.height = 0.35,
-                           font.title = c(16, "bold", "black"), font.subtitle = c(16, "bold", "black"),
-                           font.caption = c(16, "bold", "black"), font.x = c(16, "bold", "black"),
-                           font.y = c(16, "bold", "black"), font.tickslab = c(16, "bold", "black"))
-          t$plot <- t$plot + theme(legend.title = element_text(size = 18, color = "black", face = "bold"),
-                                   legend.text = element_text(size = 18, color = "black", face = "bold"),
-                                   axis.text.x = element_text(size = 20, color = "black", face = "bold"),
-                                   axis.text.y = element_text(size = 20, color = "black", face = "bold"),
-                                   axis.title.x = element_text(size = 20, color = "black", face = "bold"),
-                                   axis.title.y = element_text(size = 20, color = "black", face = "bold"))
-          t$table <- t$table + theme(plot.title = element_text(size = 16, color = "black", face = "bold"), 
-                                     axis.text.x = element_text(size = 20, color = "black", face = "bold"),
-                                     axis.title.x = element_text(size = 20, color = "black", face = "bold"))
-          
-          pdf(paste0(Gene_set,"_mutsurv.pdf"))
-          print(t, newpage = FALSE)
-          dev.off()
-        }
-      }
-      
-      
-      
-      
-    #Cut at best cutpoint
-    {
-      
+    # Loop over different cut-off points
+    for (cutter in 2:(nrow(PtSurv)-1)){  
+      # Repeat the same process with different cut-off points
+      PtClinical4 <- merge(PtClinical, PtGeneScore2,  by = "PATIENT_ID", all = TRUE)  
       PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
       PtSurv <- subset(PtSurvivalCurve, select = c(3,2,10))
       colnames(PtSurv) <- c("time", "status", "score")
       PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
       PtSurv <- na.omit(PtSurv)
       PtSurv$score <- as.numeric(PtSurv$score)
-      PtSurv$time <- as.numeric(PtSurv$time)
       PtSurv[is.na(PtSurv)] <- 0
-      # PtSurv <- LiziSurv2
       PtSurv <- PtSurv[order(as.numeric(PtSurv$score),decreasing = TRUE), ]
-      res.cut <- surv_cutpoint(PtSurv, time = "time", event = "Status",
-                               variables = "score", minprop = 0.1)
-      summary(res.cut)
-      PtSurv$score[as.numeric(PtSurv$score) > res.cut$score[4]] <- as.character("High_Score")
-      PtSurv$score[(PtSurv$score) <= res.cut$score[4]] <- as.character("Low_Score")
+      GeneScoreValue <- PtSurv[cutter,3]
+      PtSurv[1:cutter,3] <- "High_Gene"
+      PtSurv[cutter:(nrow(PtSurv)),3] <- "Low_Gene"
+      PtSurv <- filter(PtSurv, score == "High_Gene" | score == "Low_Gene")
       
+      # Calculate survival difference for the current cut-off point
+      CutTrial <- survdiff(Surv(time, Status) ~ score, data = PtSurv) 
+      CutTrial <- data.frame(CutTrial$pvalue,CutTrial$n, CutTrial$obs,CutTrial$exp, GeneScoreValue)
+      HR <- as.numeric(CutTrial[1,4])*as.numeric(CutTrial[2,5])/as.numeric(CutTrial[1,5])/as.numeric(CutTrial[2,4])
+      CutTrial$HR <- HR
+      
+      # Add the results to the AggreCut data frame
+      AggreCut <- rbind(AggreCut, CutTrial)
     }
-    # Print a summary of `res.cut`
-    summary(res.cut)
     
-    # Open a new device
-    dev.new(width = 200, height = 200, unit = "px")
+    # Now we process the AggreCut data frame
+    AggreCut <- AggreCut[order(as.numeric(AggreCut[,1]), decreasing = FALSE),]
+    AggreCut2 <- AggreCut[AggreCut$groups == "score=High_Gene",]
+    AggreCut2 <- AggreCut2[order(as.numeric(AggreCut2[,3]), decreasing = FALSE),]
+    AggreCut2$Fraction <- AggreCut2$Freq/nrow(AggreCut2)
+    AggreCut2$logp <- -log(AggreCut2$CutTrial.pvalue, base = 10)
     
-    # Plot the survival curve with risk table
-    r <- survfit2(Surv(time, Status) ~ score, data = PtSurv) 
-    t <- ggsurvplot(r, data = PtSurv, risk.table = TRUE,
-                    size = 1.2,
-                    fontsize = 7.5,
-                    risk.table.y.text = FALSE,
-                    tables.y.text = FALSE,
-                    risk.table.height = 0.35,
-                    font.title = c(16, "bold", "black"),
-                    font.subtitle = c(16, "bold", "black"),
-                    font.caption = c(16, "bold", "black"),
-                    font.x = c(16, "bold", "black"),
-                    font.y = c(16, "bold", "black"),
-                    font.tickslab = c(16, "bold", "black")) 
+    #Check for Duplicates
+    if (AggreCut2[nrow(AggreCut2), 6] == AggreCut2[nrow(AggreCut2)-1, 6] ){
+      Dupe = 1 
+    }
     
-    # Add themes to the plot and table
-    t$plot <- t$plot + theme(legend.title = element_text(size = 14, color = "black", face = "bold"),
-                             legend.text = element_text(size = 14, color = "black", face = "bold"),
-                             axis.text.x = element_text(size = 20, color = "black", face = "bold"),
-                             axis.text.y = element_text(size = 20, color = "black", face = "bold"),
-                             axis.title.x = element_text(size = 20, color = "black", face = "bold"),
-                             axis.title.y = element_text(size = 20, color = "black", face = "bold"))
-    t$table <- t$table + theme(plot.title = element_text(size = 16, color = "black", face = "bold"), 
-                               axis.text.x = element_text(size = 20, color = "black", face = "bold"),
-                               axis.title.x = element_text(size = 20, color = "black", face = "bold"),
-    )
     
-    # Save the plot as a pdf
-    pdf(paste0(Gene_set, "survplot.pdf"))
-    print(t, newpage = FALSE)
-    dev.off()
-    
-    # Perform Cox proportional hazards model
-    fit <- coxph(Surv(time,Status) ~ score, data = PtSurv)
-    
-    test.ph <- cox.zph(fit)
-    
-    # Compute and save summary of fit, survival difference, and survival fit
-    SumFit <- summary(fit)
-    Diffsurv <- survdiff(Surv(time, Status) ~ score, data = PtSurv) 
-    Fitsurv <- survfit(Surv(time, Status) ~ score, data = PtSurv)
-    
-    capture.output(SumFit, file = paste0(Gene_set,"SumFit.csv"))
-    capture.output(Diffsurv, file = paste0(Gene_set,"Diffsurv.csv"))
-    capture.output(Fitsurv, file = paste0(Gene_set,"Fitsurv.csv"))
-    
-    library(ROCR)
-    #Calculate and Plot ROC Curve
-    {
-      #Prepare Dataset
-      PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
-      PtSurv <- subset(PtSurvivalCurve, select = c(3,2,10))
-      colnames(PtSurv) <- c("time", "status", "score")
-      PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
-      PtSurv <- na.omit(PtSurv)
-      PtSurv$score <- as.numeric(PtSurv$score)
-      PtSurv$time <- as.numeric(PtSurv$time)
-      PtSurv[is.na(PtSurv)] <- 0
-      PtSurv <- PtSurv[order(as.numeric(PtSurv$score),decreasing = TRUE), ]
-      PtSurv2 <- PtSurv
-      PtSurv2$time <- PtSurv2$time + 0.01
-      # Filter by time over 1 month
-      # PtSurv2 <- PtSurv[PtSurv$time > 1, ] 
-      PtSurv3 <- (PtSurv[PtSurv$time < 0.001 & PtSurv$Status == 1, ] )
-      PtSurv2 <- rbind(PtSurv2, PtSurv3)
-      
-      #Time-dependent ROC Curve
-      midsurv <- 1000000
-      
-      df.y <- data.frame(PtSurv$time, PtSurv$Status)
-      df <- data.frame(PtSurv2$score, PtSurv2$time, PtSurv2$Status)
-      colnames(df) <- c("predictions", "time", "status")
-      for (o in 1:nrow(df)) {
-        df[o,4] <- as.numeric(0)
-        if (as.numeric(df[o,2]) < midsurv & df[o,3] == 1){
-          df[o,4] <- 1
+    #Count Dupes
+    if (Dupe == 1){
+      PreV  <- AggreCut2[1,6]
+      AggreCut2[1,10] <- Dupe
+      for (n in 2:nrow(AggreCut2)){
+        NowV <- AggreCut2[n,6]
+        if (PreV==NowV){
+          Dupe = Dupe +  1
+        } else {
+          Dupe = 1
         }
+        PreV <- NowV
+        AggreCut2[n,10] <- Dupe
       }
-      
-      
-      #Plot ROC Curve
-      df <- subset(df, select = c(1,4))
-      colnames(df) <- c("predictions", "labels")
-      
-      
-      pred <- prediction(df$predictions, df$labels)
-      perf <- performance(pred,"tpr","fpr")
-      line = data.frame(1:nrow(df),1:nrow(df))
-      line = line/nrow(df)
-      colnames(line) <- c("False Positive Rate", "True Positive Rate")
-      
-      
-      pdf(paste0(Gene_set, "AUC.pdf"))
-      plot(perf,colorize=FALSE, font.size = 32,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5)
-      abline(a=0, b= 1, col = "red")
-      
-      
-      dev.off()
-      auc_ROCR <- performance(pred, measure = "auc")
-      auc_ROCR <- auc_ROCR@y.values[[1]]
+    }
+    
+    DupeStart <- nrow(AggreCut2)-Dupe
+    
+    #Dupe Penalty
+    for (n in DupeStart:nrow(AggreCut2)){
+      PreVHR <- AggreCut2[n-1,7] - 0.1
+      PreVHR <- max(PreVHR, 1)
+      PreVP <- AggreCut2[n-1,9] - 0.1
+      PreVP <- max(PreVP, 0)
+      AggreCut2[n,7] <- PreVHR
+      AggreCut2[n,9] <- PreVP
     }
     
     
-    #Select cutoff for activity
-    {
-      PtScore3 <- merge(PtGeneScore2, PtSpecificMutation, all.x = TRUE)
-      bestcutoff <- res.cut$score
-      
-      write.csv(PtScore3, file = paste0(Gene_set,"vsMut.csv"))
-      
-      
-      bestcutoff <- res.cut$cutpoint$cutpoint
-    }
+    # output data
+    write.csv(AggreCut2, file = paste0("AggreCut", Gene_set,cutter,s, ".csv"))
     
-    
-    #Prepare Activity data
+    #Plot LOCC Graph
     {
-      
-      PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
-      PtSurv <- subset(PtSurvivalCurve, select = c(1,3,2,10))
-      
-      colnames(PtSurv) <- c("PATIENT_ID", "time", "status", "score")
-      PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
-      PtSurv <- na.omit(PtSurv)
-      
-      df.activity <- data.frame(PtSurv)
-      df.activity <- df.activity[order(as.numeric(df.activity[,4]), decreasing = TRUE),]
-      df.activity <- df.activity %>% 
-        mutate(row_id=row_number())
-      df.activity <- merge(df.activity, PtSpecificMutation, by = "PATIENT_ID", keep.all = TRUE, all.x = TRUE)
-      df.activity[is.na(df.activity)] <- "WT"
-      df.activity <- subset(df.activity, select = c(4,6,7))
-      df.activity$N_Score <- as.numeric(df.activity$score)
-      df.activity <- df.activity[order(df.activity$score, decreasing = TRUE),]
-    }
-    
-    #Plot Activity Graph
-    {
-      q <- ggplot(df.activity, aes(x = row_id, y = N_Score,color = Hugo_Symbol)) + geom_point(size = 1.8)  + ggtitle(paste0(Gene_set," TCGA ", TCGA_Cancer_ID,  " Curve")) + scale_y_continuous(
-        #+ scale_color_manual(values=c("cornflower blue")) 
+      df.cut <- subset(AggreCut2, select = c(7,8))
+      df.cut <- melt(df.cut, id.vars = "Fraction" , na.rm =  TRUE)
+      df.cut2 <- subset(AggreCut2, select = c(8,9))
+      df.cut2$logp <- (df.cut2$logp/2)
+      df.cut2 <- melt(df.cut2, id.vars = "Fraction" , na.rm =  TRUE)
+      df.cut2$variable <- "-Log (p value)"
+      df.cut2 <- rbind(df.cut2, df.cut)
+      df.cut2 <- df.cut2[df.cut2$Fraction > 0.05,]
+      df.cut2 <- df.cut2[df.cut2$Fraction < 0.95,]
+      df.cut2$variable <- factor(df.cut2$variable, levels = c("HR", "-Log (p value)"))
+      p <- ggplot(df.cut2, aes(x = Fraction, y = value,color = variable)) +geom_point() + geom_line(aes(color = variable)) + scale_color_manual(values=c("black", "orange")) + ggtitle(paste0(Gene_set, " TCGA ", TCGA_Cancer_ID ," LOCC")) + scale_y_continuous(
         # Features of the first axis
-        name = paste0(Gene_set, "Score"), expand = c(0, 0)
+        name = "Hazard Ratio (HR)",
         # Add a second axis and specify its features
-        #sec.axis = sec_axis( trans=~.*2, name="-Log (p value)")
-      ) + scale_x_continuous( name = paste0("Ranking by ", Gene_set), expand = c(0, 1))  + geom_hline(aes(yintercept=bestcutoff),  color = "gray50") + scale_fill_discrete(labels=c('HR', 'p value')) + theme_classic()+ theme(legend.position="bottom", text=element_text(size=30), axis.text=element_text(size=30), plot.title = element_text(hjust = 0.5))  + labs(colour="Legend",x="xxx",y="yyy")
+        sec.axis = sec_axis( trans=~.*2, name="-Log (p value)")
+      ) + scale_x_continuous( name = "Fraction in High Activity Group", limits = c(0, 1), expand = c(0, 0)) + geom_hline(aes(yintercept=1), color = "red") + geom_hline(aes(yintercept=0.65),  color = "green") + scale_fill_discrete(labels=c('HR', 'p value')) + theme_classic()+ theme(plot.title = element_text(hjust = 0.5),legend.position="bottom", text=element_text(size=30), axis.text=element_text(size=30))  + labs(colour="Legend",x="xxx",y="yyy")
       
-      # Open a new device
-      dev.new(width = 200, height = 200, unit = "px")
-      # q
-      ggsave(paste0(Gene_set," Activityv3.pdf"), plot=q)
-      graphics.off()
+      
+      ggsave(paste0(Gene_set,s,"_LOCC.pdf"), plot=p)
+      # dev.off
     }
     
+    PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
+    PtSurv <- subset(PtSurvivalCurve, select = c(3,2,10))
+    colnames(PtSurv) <- c("time", "status", "score")
+    PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
+    PtSurv <- na.omit(PtSurv)
+    PtSurv$score <- as.numeric(PtSurv$score)
+    PtSurv$time <- as.numeric(PtSurv$time)
+    PtSurv[is.na(PtSurv)] <- 0
+    # PtSurv <- LiziSurv2
+    PtSurv <- PtSurv[order(as.numeric(PtSurv$score),decreasing = TRUE), ]
     
     
-    #LOCC Calculations
     {
-      
-      #Calculate Parameters
-      length (AggreCut2$logp[AggreCut2$logp > as.numeric(2)])
-      max(AggreCut2$HR[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9])
-      min(AggreCut2$HR[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9])
-      max(AggreCut2$logp[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9])
-      #Create Dataframe and Save numbers
-      DF.qkscore <- data.frame(Mutation1, max(AggreCut2$logp[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9]), length (AggreCut2$logp[AggreCut2$logp > as.numeric(2)])/nrow(AggreCut2), max(AggreCut2$HR[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9]), min(AggreCut2$HR[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9]),res.cut$cutpoint$cutpoint, Dupe, AggreCut2$HR[AggreCut2$logp == (max(AggreCut2$logp[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9]))], auc_ROCR)
-      colnames(DF.qkscore) <- c("Gene", "-log (p value)", "Percentage highly significantly", "Highest HR", "Lowest HR", "Cut","dupe", "significant HR", "auc_ROCR")
-      write.csv(DF.qkscore, paste0(Gene_set, "_LOCC_Scorev3.csv"))
+      #Check if gene is expressed
+      if (nrow(PtSurv) > 100 & PtSurv[nrow(PtSurv)/5,3] != PtSurv[nrow(PtSurv)-1,3]){
+        
+        #Mutation Analysis
+        {
+          # Subset the dataframe `PtClinical2` to keep only relevant columns
+          PtSurvivalCurve <- subset(PtClinical2, select = c(1,30:37,38))
+          
+          # Further subset `PtSurvivalCurve` to keep only essential columns
+          PtSurv <- subset(PtSurvivalCurve, select = c(1,3,2,10))
+          
+          # Rename the columns of `PtSurv`
+          colnames(PtSurv) <- c("ID","time", "status", "mutation")
+          
+          # Recode the `status` column such that '1:DECEASED' is 1 and '0:LIVING' is 0
+          PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
+          
+          # Remove NA values from `PtSurv`
+          PtSurv <- na.omit(PtSurv)
+          
+          # Replace the mutations with "Mutant"
+          PtSurv$mutation[PtSurv$mutation == Mutation1] <- "Mutant"
+          
+          
+          # Order the `PtSurv` dataframe based on `mutation`
+          PtSurv <- PtSurv[order(as.character(PtSurv$mutation), decreasing = FALSE), ]
+          
+          # Keep only distinct rows of `PtSurv` based on `ID`
+          PtSurv <- distinct(PtSurv, ID, .keep_all = T)
+          
+          # Only perform survival analysis if there are more than 5 "Mutant"
+          if (length(PtSurv$mutation[PtSurv$mutation == "Mutant"]) > 5){
+            # Compute the survival difference
+            surv_diff <- survdiff(Surv(time, Status) ~ mutation, data = PtSurv) 
+            
+            # Compute the survival fit
+            surv_fit <- survfit(Surv(time, Status) ~ mutation, data = PtSurv)
+            
+            # Plot the survival analysis
+            r <- survfit2(Surv(time, Status) ~ mutation, data = PtSurv) 
+            t <-  ggsurvplot(r, data = PtSurv, risk.table = TRUE, size=1.2, fontsize = 7.5, 
+                             risk.table.y.text = FALSE, tables.y.text = FALSE, risk.table.height = 0.35,
+                             font.title = c(16, "bold", "black"), font.subtitle = c(16, "bold", "black"),
+                             font.caption = c(16, "bold", "black"), font.x = c(16, "bold", "black"),
+                             font.y = c(16, "bold", "black"), font.tickslab = c(16, "bold", "black"))
+            t$plot <- t$plot + theme(legend.title = element_text(size = 18, color = "black", face = "bold"),
+                                     legend.text = element_text(size = 18, color = "black", face = "bold"),
+                                     axis.text.x = element_text(size = 20, color = "black", face = "bold"),
+                                     axis.text.y = element_text(size = 20, color = "black", face = "bold"),
+                                     axis.title.x = element_text(size = 20, color = "black", face = "bold"),
+                                     axis.title.y = element_text(size = 20, color = "black", face = "bold"))
+            t$table <- t$table + theme(plot.title = element_text(size = 16, color = "black", face = "bold"), 
+                                       axis.text.x = element_text(size = 20, color = "black", face = "bold"),
+                                       axis.title.x = element_text(size = 20, color = "black", face = "bold"))
+            
+            pdf(paste0(Gene_set,s,"_mutsurv.pdf"))
+            print(t, newpage = FALSE)
+            dev.off()
+          }
+        }
+        
+        #Cut at best cutpoint
+        {
+          
+          PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
+          PtSurv <- subset(PtSurvivalCurve, select = c(3,2,10))
+          colnames(PtSurv) <- c("time", "status", "score")
+          PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
+          PtSurv <- na.omit(PtSurv)
+          PtSurv$score <- as.numeric(PtSurv$score)
+          PtSurv$time <- as.numeric(PtSurv$time)
+          PtSurv[is.na(PtSurv)] <- 0
+          # PtSurv <- LiziSurv2
+          PtSurv <- PtSurv[order(as.numeric(PtSurv$score),decreasing = TRUE), ]
+          res.cut <- surv_cutpoint(PtSurv, time = "time", event = "Status",
+                                   variables = "score", minprop = 0.1)
+          summary(res.cut)
+          PtSurv$score[as.numeric(PtSurv$score) > res.cut$score[4]] <- as.character("High_Score")
+          PtSurv$score[(PtSurv$score) <= res.cut$score[4]] <- as.character("Low_Score")
+          
+        }
+        # Print a summary of `res.cut`
+        summary(res.cut)
+        
+        # Open a new device
+        dev.new(width = 200, height = 200, unit = "px")
+        
+        # Plot the survival curve with risk table
+        r <- survfit2(Surv(time, Status) ~ score, data = PtSurv) 
+        t <- ggsurvplot(r, data = PtSurv, risk.table = TRUE,
+                        size = 1.2,
+                        fontsize = 7.5,
+                        risk.table.y.text = FALSE,
+                        tables.y.text = FALSE,
+                        risk.table.height = 0.35,
+                        font.title = c(16, "bold", "black"),
+                        font.subtitle = c(16, "bold", "black"),
+                        font.caption = c(16, "bold", "black"),
+                        font.x = c(16, "bold", "black"),
+                        font.y = c(16, "bold", "black"),
+                        font.tickslab = c(16, "bold", "black")) 
+        
+        # Add themes to the plot and table
+        t$plot <- t$plot + theme(legend.title = element_text(size = 14, color = "black", face = "bold"),
+                                 legend.text = element_text(size = 14, color = "black", face = "bold"),
+                                 axis.text.x = element_text(size = 20, color = "black", face = "bold"),
+                                 axis.text.y = element_text(size = 20, color = "black", face = "bold"),
+                                 axis.title.x = element_text(size = 20, color = "black", face = "bold"),
+                                 axis.title.y = element_text(size = 20, color = "black", face = "bold"))
+        t$table <- t$table + theme(plot.title = element_text(size = 16, color = "black", face = "bold"), 
+                                   axis.text.x = element_text(size = 20, color = "black", face = "bold"),
+                                   axis.title.x = element_text(size = 20, color = "black", face = "bold"),
+        )
+        
+        # Save the plot as a pdf
+        pdf(paste0(Gene_set,s, "survplot.pdf"))
+        print(t, newpage = FALSE)
+        dev.off()
+        
+        # Perform Cox proportional hazards model
+        fit <- coxph(Surv(time,Status) ~ score, data = PtSurv)
+        
+        # Compute and save summary of fit, survival difference, and survival fit
+        SumFit <- summary(fit)
+        Diffsurv <- survdiff(Surv(time, Status) ~ score, data = PtSurv) 
+        Fitsurv <- survfit(Surv(time, Status) ~ score, data = PtSurv)
+        
+        capture.output(SumFit, file = paste0(Gene_set,s,"SumFit.csv"))
+        capture.output(Diffsurv, file = paste0(Gene_set,s,"Diffsurv.csv"))
+        capture.output(Fitsurv, file = paste0(Gene_set,s,"Fitsurv.csv"))
+        
+        library(ROCR)
+        #Calculate and Plot ROC Curve
+        {
+          #Prepare Dataset
+          PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
+          PtSurv <- subset(PtSurvivalCurve, select = c(3,2,10))
+          colnames(PtSurv) <- c("time", "status", "score")
+          PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
+          PtSurv <- na.omit(PtSurv)
+          PtSurv$score <- as.numeric(PtSurv$score)
+          PtSurv$time <- as.numeric(PtSurv$time)
+          PtSurv[is.na(PtSurv)] <- 0
+          PtSurv <- PtSurv[order(as.numeric(PtSurv$score),decreasing = TRUE), ]
+          PtSurv2 <- PtSurv
+          PtSurv2$time <- PtSurv2$time + 0.01
+          # Filter by time over 1 month
+          # PtSurv2 <- PtSurv[PtSurv$time > 1, ] 
+          PtSurv3 <- (PtSurv[PtSurv$time < 0.001 & PtSurv$Status == 1, ] )
+          PtSurv2 <- rbind(PtSurv2, PtSurv3)
+          
+          #Time-dependent ROC Curve
+          midsurv <- 1000000
+          
+          df.y <- data.frame(PtSurv$time, PtSurv$Status)
+          df <- data.frame(PtSurv2$score, PtSurv2$time, PtSurv2$Status)
+          colnames(df) <- c("predictions", "time", "status")
+          for (o in 1:nrow(df)) {
+            df[o,4] <- as.numeric(0)
+            if (as.numeric(df[o,2]) < midsurv & df[o,3] == 1){
+              df[o,4] <- 1
+            }
+          }
+          
+          
+          #Plot ROC Curve
+          df <- subset(df, select = c(1,4))
+          colnames(df) <- c("predictions", "labels")
+          
+          
+          pred <- prediction(df$predictions, df$labels)
+          perf <- performance(pred,"tpr","fpr")
+          line = data.frame(1:nrow(df),1:nrow(df))
+          line = line/nrow(df)
+          colnames(line) <- c("False Positive Rate", "True Positive Rate")
+          
+          
+          pdf(paste0(Gene_set,s, "AUC.pdf"))
+          plot(perf,colorize=FALSE, font.size = 32,cex.lab=1.5, cex.axis=1.5, cex.main=1.5, cex.sub=1.5)
+          abline(a=0, b= 1, col = "red")
+          
+          
+          dev.off()
+          auc_ROCR <- performance(pred, measure = "auc")
+          auc_ROCR <- auc_ROCR@y.values[[1]]
+        }
+        
+        #Select cutoff for activity
+        {
+          PtScore3 <- merge(PtGeneScore2, PtSpecificMutation, all.x = TRUE)
+          bestcutoff <- res.cut$score
+          
+          write.csv(PtScore3, file = paste0(Gene_set,s,"vsMut.csv"))
+          
+          
+          bestcutoff <- res.cut$cutpoint$cutpoint
+        }
+        
+        
+        #Prepare Activity data
+        {
+          
+          PtSurvivalCurve <- subset(PtClinical4, select = c(1,30:38))
+          PtSurv <- subset(PtSurvivalCurve, select = c(1,3,2,10))
+          
+          colnames(PtSurv) <- c("PATIENT_ID", "time", "status", "score")
+          PtSurv <- mutate(PtSurv, Status = dplyr::recode(PtSurv$status, "1:DECEASED" = 1, "0:LIVING" = 0))
+          PtSurv <- na.omit(PtSurv)
+          
+          df.activity <- data.frame(PtSurv)
+          df.activity <- df.activity[order(as.numeric(df.activity[,4]), decreasing = TRUE),]
+          df.activity <- df.activity %>% 
+            mutate(row_id=row_number())
+          df.activity <- merge(df.activity, PtSpecificMutation, by = "PATIENT_ID", keep.all = TRUE, all.x = TRUE)
+          df.activity[is.na(df.activity)] <- "WT"
+          df.activity <- subset(df.activity, select = c(4,6,7))
+          df.activity$n_Score <- as.numeric(df.activity$score)
+          df.activity <- df.activity[order(df.activity$score, decreasing = TRUE),]
+        }
+        
+        #Plot Activity Graph
+        {
+          q <- ggplot(df.activity, aes(x = row_id, y = n_Score,color = Hugo_Symbol)) + geom_point(size = 1.8)  + ggtitle(paste0(Gene_set," TCGA ", TCGA_Cancer_ID,  " Curve")) + scale_y_continuous(
+            #+ scale_color_manual(values=c("cornflower blue")) 
+            # Features of the first axis
+            name = paste0(Gene_set, "Score"), expand = c(0, 0)
+            # Add a second axis and specify its features
+            #sec.axis = sec_axis( trans=~.*2, name="-Log (p value)")
+          ) + scale_x_continuous( name = paste0("Ranking by ", Gene_set), expand = c(0, 1))  + geom_hline(aes(yintercept=bestcutoff),  color = "gray50") + scale_fill_discrete(labels=c('HR', 'p value')) + theme_classic()+ theme(legend.position="bottom", text=element_text(size=30), axis.text=element_text(size=30), plot.title = element_text(hjust = 0.5))  + labs(colour="Legend",x="xxx",y="yyy")
+          
+          # q
+          ggsave(paste0(Gene_set,s," Activityv3.pdf"), plot=q)
+          # graphics.off()
+        }
+        
+        
+        #LOCC Calculations
+        {
+          
+          
+          #Calculate Parameters
+          length (AggreCut2$logp[AggreCut2$logp > as.numeric(2)])
+          max(AggreCut2$HR[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9])
+          min(AggreCut2$HR[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9])
+          max(AggreCut2$logp[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9])
+          #Create Dataframe and Save numbers
+          DF.qkscore <- data.frame(Mutation1, max(AggreCut2$logp[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9]), length (AggreCut2$logp[AggreCut2$logp > as.numeric(2)])/nrow(AggreCut2), max(AggreCut2$HR[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9]), min(AggreCut2$HR[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9]),res.cut$cutpoint$cutpoint, Dupe, AggreCut2$HR[AggreCut2$logp == (max(AggreCut2$logp[AggreCut2$Fraction > 0.1 & AggreCut2$Fraction < 0.9]))], auc_ROCR)
+          colnames(DF.qkscore) <- c("Gene", "-log (p value)", "Percentage highly significantly", "Highest HR", "Lowest HR", "Cut","dupe", "significant HR", "auc_ROCR")
+          write.csv(DF.qkscore, paste0(Gene_set,s, "_LOCC_Scorev3.csv"))
+        }
+      }
     }
-    }
-  }
   }
   
   graphics.off()
   
 }
+
 
 #Locc function for sampling (2-Fold Cross Validation), s for number for times to run sample simulation
 Loccfunc2 <- function(j,s){
@@ -1473,7 +1938,179 @@ LoccfuncR <- function(r){
   
 }
 
+# Load necessary libraries
+library(dplyr)
+library(survival)
+library(ggplot2)
 
+# Initialize a global data frame to store the summaries with the correct structure but no rows
+global_summary <- data.frame(Gene = character(),
+                             coef = numeric(),
+                             exp_coef = numeric(),
+                             se_coef = numeric(),
+                             z = numeric(),
+                             p = numeric(),
+                             linearity_p = numeric(),
+                             ph_p = numeric(),  # Add a column for the PH test p-value
+                             stringsAsFactors = FALSE)
+
+# Create a function to calculate Cox PH values for gene position j and plot the CoxPH regression curve using ggplot2
+CoxPHFunc <- function(j) {
+  
+  Mutation1 <- PtExpressionZ[j, 1]
+  Gene_set <- Mutation1
+  
+  # Ensure the gene is valid
+  if (!is.na(Mutation1) && Mutation1 != "") {
+    
+    # Filter mutation data for the specific gene
+    PtSpecificMutation <- PtMutation %>%
+      filter(Hugo_Symbol == Mutation1 & Variant_Classification != "Silent") %>%
+      select(Hugo_Symbol, Tumor_Sample_Barcode) %>%
+      distinct()
+    
+    # Process Tumor Sample Barcodes
+    PtSpecificMutation$Tumor_Sample_Barcode <- substr(PtSpecificMutation$Tumor_Sample_Barcode, 1, nchar(PtSpecificMutation$Tumor_Sample_Barcode) - 3)
+    colnames(PtSpecificMutation)[2] <- "PATIENT_ID"
+    
+    # Merge the clinical and mutation data
+    PtClinical2 <- merge(PtClinical, PtSpecificMutation, by = "PATIENT_ID", all.x = TRUE)
+    PtClinical2$Hugo_Symbol <- replace_na(PtClinical2$Hugo_Symbol, "WT")
+    PtClinical2$Mutant <- PtClinical2$Hugo_Symbol
+    
+    # Process the expression data for the gene
+    PtExpressionGene <- PtExpressionZ[PtExpressionZ$Hugo_Symbol == Mutation1, ]
+    PtExpressionGene <- na.omit(PtExpressionGene)
+    Averages <- summarize_all(PtExpressionGene[, -c(1)], mean)
+    Averages <- data.frame(Hugo_Symbol = "Mean", Averages)
+    PtExpressionGene <- rbind(PtExpressionGene, Averages)
+    
+    # Compute Gene Z-Score
+    PtGeneScore <- PtExpressionGene[nrow(PtExpressionGene), -1]
+    PtGeneScore2 <- data.frame(PATIENT_ID = colnames(PtGeneScore), Gene_Score = as.numeric(PtGeneScore))
+    PtGeneScore2$PATIENT_ID <- substr(PtGeneScore2$PATIENT_ID, 1, nchar(PtGeneScore2$PATIENT_ID) - 3)
+    PtGeneScore2$PATIENT_ID <- str_replace_all(PtGeneScore2$PATIENT_ID, "\\.", "-")
+    
+    # Merge clinical data with gene score data
+    PtClinical4 <- merge(PtClinical, PtGeneScore2, by = "PATIENT_ID", all = TRUE)
+    
+    # Replace these with your actual column names for time and status in PtClinical4
+    time_col <- "OS_MONTHS"  # Replace with actual column name
+    status_col <- "OS_STATUS"  # Replace with actual column name
+    
+    # Subset the relevant columns
+    PtSurv <- PtClinical4 %>%
+      select(time = all_of(time_col), status = all_of(status_col), score = Gene_Score) %>%
+      mutate(Status = dplyr::recode(status, "1:DECEASED" = 1, "0:LIVING" = 0)) %>%
+      na.omit()
+    
+    # Convert score to numeric and handle NA values
+    PtSurv$score <- as.numeric(PtSurv$score)
+    PtSurv <- PtSurv[order(PtSurv$score, decreasing = TRUE), ]
+    
+    # Fit the original (linear) Cox PH model
+    cox_model <- tryCatch({
+      coxph(Surv(time, Status) ~ score, data = PtSurv)
+    }, error = function(e) {
+      warning(paste0("Model fitting failed for gene ", Gene_set, ": ", e$message))
+      return(NULL)
+    })
+    
+    # Skip if the model failed to fit
+    if (is.null(cox_model)) {
+      return(NULL)
+    }
+    
+    cox_summary <- summary(cox_model)
+    
+    # Ensure that coefficients are present in the summary and that they have rows
+    if (is.null(cox_summary$coefficients) || nrow(cox_summary$coefficients) == 0) {
+      warning(paste0("No valid coefficients in summary for gene ", Gene_set, ". Skipping."))
+      return(NULL)
+    }
+    
+    # Fit a model with a quadratic term for score
+    cox_model_quad <- tryCatch({
+      coxph(Surv(time, Status) ~ score + I(score^2), data = PtSurv)
+    }, error = function(e) {
+      warning(paste0("Quadratic model fitting failed for gene ", Gene_set, ": ", e$message))
+      return(NULL)
+    })
+    
+    # Skip if the quadratic model failed to fit
+    if (is.null(cox_model_quad)) {
+      return(NULL)
+    }
+    
+    # Perform a likelihood ratio test to compare the models
+    lr_test <- anova(cox_model, cox_model_quad, test = "LRT")
+    linearity_p <- lr_test[2,4]  # P-value for the quadratic term
+    
+    # Perform the proportional hazards test
+    zph_test <- cox.zph(cox_model)
+    ph_p <- zph_test$table["score", "p"]  # Extract the p-value for the PH test for 'score'
+
+    # Correctly create the new summary data frame
+    new_summary <- data.frame(
+      Gene = Gene_set,
+      coef = cox_summary$coefficients["score", "coef"],
+      exp_coef = cox_summary$coefficients["score", "exp(coef)"],
+      se_coef = cox_summary$coefficients["score", "se(coef)"],
+      z = cox_summary$coefficients["score", "z"],
+      p = cox_summary$coefficients["score", "Pr(>|z|)"],
+      linearity_p = linearity_p,
+      ph_p = ph_p  # Add the PH test p-value to the summary
+    )
+    
+    # Append the new summary to the global_summary
+    global_summary <<- rbind(global_summary, new_summary)
+    
+    # Print the summary of the cox.zph test
+    print(zph_test)
+    
+    # Plot the Cox.zph results for the variable of interest and save the plot
+    plot_filename <- paste0(Gene_set, "_PH_Test_Plot.pdf")
+    pdf(file = plot_filename)
+    plot(zph_test, var = 1, main = paste0("Proportional Hazards Test for ", Gene_set))
+    dev.off()
+    
+    # Plot the Cox.zph results for the variable of interest
+    plot(zph_test, var = 1, main = paste0("Proportional Hazards Test for ", Gene_set))
+    
+    # Test for Linearity: Plotting Martingale Residuals vs Gene Score
+    martingale_res <- residuals(cox_model, type = "martingale")
+    linearity_plot <- ggplot(PtSurv, aes(x = score, y = martingale_res)) +
+      geom_point() +
+      geom_smooth(method = "loess", color = "blue") +
+      labs(title = paste0("Linearity Test: Martingale Residuals for ", Gene_set),
+           x = "Gene Score",
+           y = "Martingale Residuals") +
+      theme_minimal()
+    
+    # Save the linearity plot
+    linearity_plot_filename <- paste0(Gene_set, "_Linearity_Test_Plot.pdf")
+    ggsave(linearity_plot_filename, plot = linearity_plot, width = 7, height = 7)
+    
+    # Optionally, print the linearity plot to the console
+    print(linearity_plot)
+    
+    # Output the numeric test for linearity
+    cat("Linearity test p-value for", Gene_set, ":", linearity_p, "\n")
+  }
+}
+
+
+    
+
+
+# Example usage to run the function for a specific gene (e.g., GAGE2D)
+i <- grep("^POLR2H$", PtExpressionZ[, 1])
+
+for (i in 1:20531){
+CoxPHFunc(i)
+}
+
+write.csv(global_summary, file = "Cox_Summary_all.csv")
 #Test for cox PH assumption as needed
 # fit
 # test.ph
@@ -1482,6 +2119,42 @@ LoccfuncR <- function(r){
 # Loop over all genes, will take a long time
 for (j in 1:20531){
   Loccfunc(j)
+}
+
+cl <- makeCluster(12, type="SOCK") # 10 - number of cores
+registerDoSNOW(cl) # Register Backend Cores for Parallel Computing
+foreach(i = 1:20531) %dopar% {
+  library("devtools")
+  # install_github("jdstorey/qvalue")
+  #library packages
+  library(dplyr)
+  library(tidyr)
+  library(data.table)
+  library(lessR)
+  library(foreach)
+  library(doParallel)
+  library(doSNOW)
+  library(ggplot2)
+  library(ggrepel)
+  library(reshape2)
+  library(tidyselect)
+  library(tidyverse)
+  library(devtools)
+  library(githubinstall)
+  library(survival)
+  library(lubridate)
+  library(ggsurvfit)
+  library(gtsummary)
+  library(tidycmprsk)
+  library(condSURV)
+  library(ggplot2)
+  library(cutpointr)
+  library(survminer)
+  library(ROCR)
+  library(qvalue)
+  library(gridExtra)
+  library(Cairo)
+  Loccfunc(i)
 }
 
 Loccfunc(j)
@@ -3018,3 +3691,26 @@ setwd(paste0("C:/Users/soldi/Documents/R/CTRP2/", TCGA_Cancer_ID,"_tcga_pan_can_
   graphics.off()
   
 }
+
+GeneList <- unique(PtExpression[,1])
+set.seed(123) # Setting seed for reproducibility
+
+# Function to create files with random genes
+create_gene_files <- function(gene_list, num_files, genes_per_file) {
+  for (i in 1:num_files) {
+    # Select random genes
+    random_genes <- sample(gene_list, genes_per_file, replace = FALSE)
+    # Define the file name
+    file_name <- paste0("gene_file_", i, ".txt")
+    # Write the genes to the file
+    writeLines(random_genes, file_name)
+  }
+}
+
+# Parameters
+num_files <- 100
+genes_per_file <- 200
+
+# Create the files
+create_gene_files(GeneList, num_files, genes_per_file)
+
